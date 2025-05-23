@@ -1,3 +1,4 @@
+.vscode
 opt
 opt-leak
 optimistic-locking-leak.cpp
