@@ -1,2 +1,5 @@
-error.txt
-out.txt
+opt
+opt-leak
+optimistic-locking-leak.cpp
+*.txt
+*.o

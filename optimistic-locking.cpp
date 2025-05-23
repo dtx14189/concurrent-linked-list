@@ -7,7 +7,7 @@
 
 #define MAX_THREADS 8
 #define ACCESSED_PTRS_PER_THREAD 2
-#define RECLAIM_THRESHOLD 10000
+// #define RECLAIM_THRESHOLD 10000
 
 // ------------------------------------------------------
 // Optimistic (Lazy) Linked List with Marking
@@ -50,8 +50,6 @@ public:
     }
 
     ~MarkedList() {
-        // We do NOT fully reclaim “removed” nodes here.
-        // For a real system, you'd add a safe reclamation scheme.
         Node* curr = head;
         while (curr) {
             Node* temp = curr;
@@ -62,7 +60,6 @@ public:
 
     void storeAccessedPointer(int threadID, Node* node, int index) {
         accessedPointers[threadID][index].store(node, std::memory_order_release);
-        // std::cout << "test";
     }
 
     void resetAccessedPointer(int threadID) {
@@ -72,7 +69,6 @@ public:
     }
 
     bool isNodeAccessed(Node* node) {
-        // std::cout << "hmmmmm" << std::endl;
         for (int i = 0; i < MAX_THREADS; ++i) {
             for(int j = 0; j < ACCESSED_PTRS_PER_THREAD; j++){
                 if (accessedPointers[i][j].load(std::memory_order_acquire) == node) {
@@ -86,15 +82,12 @@ public:
 
     // --- Scan and Reclaim Memory ---
     void scanAndReclaim() {
-        // std::cout << "Retirelist: \n";
-        // printRetireList();
         std::lock_guard<std::mutex> lock(retireMutex);
         std::vector<Node*> newRetireList;
 
         for (Node* node : retireList) {
             if (!isNodeAccessed(node)) {
-                // std::cout << "ok" << std::endl;
-                std::cerr << "Deleted: " << node->value << std::endl;
+                // std::cerr << "Deleted: " << node->value << std::endl;
                 delete node;  // Safe to free
             } else {
                 newRetireList.push_back(node);
@@ -118,8 +111,6 @@ public:
                 curr = curr->next;
             }
 
-            
-
             // (2) Lock pred
             {
                 std::unique_lock<std::mutex> lockPred(pred->m);
@@ -136,7 +127,7 @@ public:
                     continue;
                 }
 
-                // Now we can safely insert if 'curr' is either null or has a value >= val
+                // safely insert b/c 'curr' is either null or has a value >= val
                 Node* newNode = new Node(val, curr);
                 pred->next = newNode;
             }
@@ -146,7 +137,7 @@ public:
             length.fetch_add(1, std::memory_order_relaxed);
             if (operationCounter.fetch_add(1, std::memory_order_relaxed) + 1 >= length) {
                 scanAndReclaim();
-                operationCounter.fetch_sub(length, std::memory_order_relaxed);  // Reduce by `RECLAIM_THRESHOLD`
+                operationCounter.fetch_sub(length, std::memory_order_relaxed);  
             }
             
             // locks unlock automatically at scope exit
@@ -206,7 +197,7 @@ public:
             length.fetch_sub(1, std::memory_order_relaxed);
             if (operationCounter.fetch_add(1, std::memory_order_relaxed) + 1 >= length) {
                 scanAndReclaim();
-                operationCounter.fetch_sub(length, std::memory_order_relaxed);  // Reduce by `RECLAIM_THRESHOLD`
+                operationCounter.fetch_sub(length, std::memory_order_relaxed);  
             }     
 
             // 'curr' is not freed; it remains for potential safe reclamation
@@ -227,30 +218,6 @@ public:
             bool found = (curr && !curr->removed && curr->value == val);
             resetAccessedPointer(threadID);
             return found;
-            // Node* pred = head;
-            // Node* curr = pred->next;
-            // // (1) Traverse (unlocked)
-            // while (curr && curr->value < val) {
-            //     pred = curr;
-            //     curr = curr->next;
-            // }
-
-            // // (2) Lock pred
-            // std::unique_lock<std::mutex> lockPred(pred->m);
-
-            // (3) Lock curr if it exists
-            // std::unique_lock<std::mutex> lockCurr;
-            // if (curr) {
-            //     lockCurr = std::unique_lock<std::mutex>(curr->m);
-            // }
-
-            // // (4) Validate again
-            // if (!validate(pred, curr)) {
-            //     continue;
-            // }
-
-            // Found if curr exists, not removed, and equals val
-            
         }
     }
 
@@ -269,16 +236,6 @@ public:
     int get_length() {
         return length;
     }
-    // int length() {
-    //     std::cout << "CHECKING LENGTH OF LIST: ";
-    //     Node* curr = head->next;
-    //     int count = 0;
-    //     while(curr) {
-    //         curr = curr->next;
-    //         count++;
-    //     }
-    //     return count;
-    // }
     
     void printRetireList() {
         for(Node *node : retireList){
@@ -306,10 +263,10 @@ public:
 // --------------------
 int main() {
     MarkedList list;
-    // We'll have multiple inserter and remover threads
+    // multiple inserter and remover threads
     const int numInsertThreads = 4;
     const int numRemoveThreads = 4;
-    const int opsPerThread = 20000;
+    const int opsPerThread = 1000;
     const int print_update = opsPerThread/10;
 
     // A random seed
@@ -322,11 +279,11 @@ int main() {
         for (int i = 0; i < opsPerThread; ++i) {
             int val = dist(rng);
             list.insert(val, id);
-            if(i % print_update == 0){
-                std::cout << "[Inserter " << id << "]" << "Iteration: " << i << " complete \n";
-            }
+            // if(i % print_update == 0){
+            //     std::cout << "[Inserter " << id << "]" << "Iteration: " << i << " complete \n";
+            // }
         }
-        std::cout << "[Inserter " << id << "] done.\n";
+        // std::cout << "[Inserter " << id << "] done.\n";
     };
 
     // Remover function
@@ -336,22 +293,22 @@ int main() {
         for (int i = 0; i < opsPerThread; ++i) {
             int val = dist(rng);
             list.remove(val, id);
-            if(i % print_update == 0){
-                std::cout << "[Remover " << id << "]" << "Iteration: " << i << " complete \n";
-            }
+            // if(i % print_update == 0){
+            //     std::cout << "[Remover " << id << "]" << "Iteration: " << i << " complete \n";
+            // }
         }
-        std::cout << "[Remover " << id << "] done.\n";
+        // std::cout << "[Remover " << id << "] done.\n";
     };
 
     // Create threads
     std::vector<std::thread> threads;
     threads.reserve(numInsertThreads + numRemoveThreads);
 
-    // Launch inserter threads
+    // Spawn inserter threads
     for (int i = 0; i < numInsertThreads; ++i) {
         threads.emplace_back(inserter, i);
     }
-    // Launch remover threads
+    // spawn remover threads
     for (int i = 0; i < numRemoveThreads; ++i) {
         threads.emplace_back(remover, i + numInsertThreads);
     }
@@ -367,8 +324,6 @@ int main() {
 
     std::cout << "Length: " << list.get_length() << std::endl;
 
-    // std::cout << "Retirelist: \n";
-    // list.printRetireList();
     int checkVal = 50;
     std::cout << "Contains " << checkVal << "? "
               << (list.contains(checkVal, 0) ? "Yes" : "No") << std::endl;
